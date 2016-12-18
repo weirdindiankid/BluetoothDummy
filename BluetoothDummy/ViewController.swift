@@ -21,7 +21,7 @@ var gCentralManager: CBCentralManager!
 var isRecording: Bool = false
 
 var Timestamp: Int {
-    return Int(NSDate().timeIntervalSince1970)
+    return Int(Date().timeIntervalSince1970)
 }
 
 
@@ -31,7 +31,7 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
     let accessToken: String = "ulJs1l1dRa1EHwrvuPJ1b8wV+LF2we0c3BXOxOmlyX6s9Fi2qQQSG3IetXJm8Vw5RCK5eNOaXhZ0nnCopcXILw=="
 
     // Keeps track of how long we have been scanning
-    var scanTimer: NSTimer = NSTimer()
+    var scanTimer: Timer = Timer()
     
     // Logs sensor values
     var sensorDataValues: String = ""
@@ -44,17 +44,14 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
     
     
     
-    @IBAction func recordButtonPressed(sender: AnyObject) {
+    @IBAction func recordButtonPressed(_ sender: AnyObject) {
         
-        if gPeripheral != nil && gPeripheral.state == CBPeripheralState.Connected {
+        if gPeripheral != nil && gPeripheral.state == CBPeripheralState.connected {
             
             if !isRecording {
                 sensorDataValues = ""
                 isRecording = true
-                recordButton.setTitle("Recording", forState: .Normal)
-            } else {
-                // Save data here
-                self.saveData()
+                recordButton.setTitle("Recording", for: UIControlState())
             }
         } else {
             BSXData.text = "Name cannot be blank."
@@ -72,7 +69,7 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
     
     @IBOutlet weak var BSXData: UILabel!
     
-    @IBAction func connectButtonPressed(sender: AnyObject) {
+    @IBAction func connectButtonPressed(_ sender: AnyObject) {
         
         if nameField.text != nil && nameField.text != "" {
             // If not connected, attempt to connect
@@ -81,160 +78,12 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
                 gCentralManager = CBCentralManager(delegate: self, queue: nil)
                 gCentralManager.delegate = self
                 allowInteraction(false)
-                connectButton.setTitle("Connecting", forState: .Normal)
+                connectButton.setTitle("Connecting", for: UIControlState())
                 connectionStatusLabel.text = ""
-                scanTimer = NSTimer.scheduledTimerWithTimeInterval(10, target: self, selector: #selector(ViewController.stopScanning), userInfo: nil, repeats: false)
-            } else {
-                self.saveData()
-                self.invalidateConnection()
+                scanTimer = Timer.scheduledTimer(timeInterval: 10, target: self, selector: #selector(ViewController.stopScanning), userInfo: nil, repeats: false)
             }
         } else {
             BSXData.text = "Name cannot be blank."
-        }
-        
-    }
-    
-    // Save data locally until a wireless network connection becomes available
-    func saveLocally() -> Void {
-        print("Save locally")
-        
-        //1
-        let appDelegate = UIApplication.sharedApplication().delegate as! AppDelegate
-        
-        let managedContext = appDelegate.managedObjectContext
-        
-        //2
-        let entity =  NSEntityDescription.entityForName("BSXData", inManagedObjectContext:managedContext)
-        
-        let valuesToSave = NSManagedObject(entity: entity!, insertIntoManagedObjectContext: managedContext)
-        
-        let myValues = String(self.sensorDataValues)
-        
-        //3
-        valuesToSave.setValue(myValues, forKey: "humonSensorData")
-        
-        if nameField.text != nil && nameField.text != "" {
-            valuesToSave.setValue(nameField.text!, forKey: "username")
-        } else {
-            valuesToSave.setValue("UsernameBlank", forKey: "username")
-        }
-        
-        //4
-        do {
-            try managedContext.save()
-        } catch let error as NSError  {
-            print("Could not save \(error), \(error.userInfo)")
-        }
-        
-        // Regardless of whether or not this action succeeds, if we can't save locally, discard the data and move on.
-        self.sensorDataValues = ""
-    }
-    
-    // Save Signal Strength
-    func saveData() -> Void {
-        
-        isRecording = false
-        recordButton.setTitle("Record", forState: .Normal)
-        
-        if sensorDataValues.characters.count > 1 {
-            
-            // Check if we have a WiFi connection
-            // To check for WiFi connection
-            let reachability: Reachability
-            do {
-                reachability = try Reachability.reachabilityForInternetConnection()
-                
-                if reachability.isReachable() {
-                    print("WiFi connection available")
-                    
-                    // Begin packaging data into meaningful format
-                    let humonSensorValues: NSMutableDictionary = NSMutableDictionary()
-                    humonSensorValues["sensor_values"] = sensorDataValues
-                    if nameField.text != nil && nameField.text != "" {
-                        humonSensorValues["user"] = nameField.text
-                    } else {
-                        humonSensorValues["user"] = "UsernameBlank"
-                    }
-                    
-                    // Upload to the backend here
-                    self.uploadToAWS(humonSensorValues)
-                }
-                else {
-                    self.saveLocally()
-                }
-                
-            } catch {
-                print("Unable to create Reachability")
-                // Save locally
-                self.saveLocally()
-            }
-            
-        }
-        
-        
-        
-        
-    }
-    
-    // Upload to the backend
-    func uploadToAWS(bsxLogs: NSDictionary) -> Void {
-        
-        let urlExtension: String = "/betalogs"
-        var request: NSMutableURLRequest? = NSMutableURLRequest()
-        
-        request = request!.generateRequest(bsxLogs, urlExtension: urlExtension)
-        
-        if request != nil {
-            
-            print("Request is not nil. Upload here.")
-            self.uploadAsynchronously(bsxLogs, request: request!)
-            
-        }
-        else {
-            print("Request is nil.")
-        }
-    }
-    
-    // Upload in a background thread
-    func uploadAsynchronously(bsxLogs: NSDictionary, request: NSURLRequest) -> Void {
-        
-        let session = NSURLSession.sharedSession()
-        var uploadData: NSData? = NSData()
-        
-        if NSJSONSerialization.isValidJSONObject(bsxLogs) {
-            
-            do {
-                
-                uploadData =  try NSJSONSerialization.dataWithJSONObject(bsxLogs, options: NSJSONWritingOptions(rawValue: 0))
-                if uploadData != nil {
-                    
-                    session.uploadTaskWithRequest(request, fromData: uploadData, completionHandler: { (uploadResponseData, uploadResponse, uploadError) -> Void in
-                        if uploadError == nil && uploadResponse != nil && String(data: uploadResponseData!, encoding: NSUTF8StringEncoding) == "1" {
-                            
-                            print("Upload succeeded -- clearing values here")
-                            self.sensorDataValues = ""
-                        }
-                        else {
-                            // An error occurred -- save locally
-                            print("Error --failed upload. Saving locally.")
-                            self.saveLocally()
-                            
-                        }
-                    }).resume()
-                }
-                else {
-                    
-                    print("uploadData is nil")
-                    self.saveLocally()
-                }
-                
-            } catch {
-                print("Failed upload asynchronously -- saving locally")
-                self.saveLocally()
-            }
-        }
-        else {
-            print("Not valid serialization.")
         }
         
     }
@@ -259,7 +108,7 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
         self.view.endEditing(true)
     }
     
-    func textFieldShouldReturn(textField: UITextField) -> Bool {
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         self.view.endEditing(true)
         return false
     }
@@ -284,28 +133,33 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
     func invalidateConnection() -> Void {
         
         allowInteraction(true)
-        if gPeripheral != nil && gPeripheral.state == CBPeripheralState.Connected {
+        if gPeripheral != nil && gPeripheral.state == CBPeripheralState.connected {
             gCentralManager.cancelPeripheralConnection(gPeripheral)
         }
         gPeripheral = nil
         connectionStatusLabel.text = "Not Connected"
-        connectButton.setTitle("Connect", forState: .Normal)
+        connectButton.setTitle("Connect", for: UIControlState())
         isDeviceConnected = false
         BSXData.text = ""
         
     }
     
-    func centralManagerDidUpdateState(central: CBCentralManager) {
-        if central.state == CBCentralManagerState.PoweredOff {
-            print("Powered off Bluetooth")
-        }
-        else if central.state == CBCentralManagerState.PoweredOn {
-            print("Powered on and now looking for new devices")
-            gCentralManager.scanForPeripheralsWithServices(nil, options: nil)
+    func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        
+        if #available(iOS 10.0, *) {
+            if central.state == CBManagerState.poweredOff {
+                print("Powered off Bluetooth")
+            }
+            else if central.state == CBManagerState.poweredOn {
+                print("Powered on and now looking for new devices")
+                gCentralManager.scanForPeripherals(withServices: nil, options: nil)
+            }
+        } else {
+            // Fallback on earlier versions
         }
     }
     
-    func centralManager(central: CBCentralManager, didDiscoverPeripheral peripheral: CBPeripheral, advertisementData: [String : AnyObject], RSSI: NSNumber) {
+    func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String : Any], rssi RSSI: NSNumber) {
         print("Discovered perihperal: \(peripheral)")
         //
         if peripheral.name == peripheralName { //"insight" {
@@ -315,78 +169,67 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
             gPeripheral = peripheral
             gPeripheral.delegate = self
             print("Stop scanning and connect")
-            gCentralManager.connectPeripheral(gPeripheral, options: nil)
+            gCentralManager.connect(gPeripheral, options: nil)
         }
     }
     
-    func allowInteraction(status: Bool) -> Void {
+    func allowInteraction(_ status: Bool) -> Void {
         if status == true {
-            if UIApplication.sharedApplication().isIgnoringInteractionEvents() {
-                UIApplication.sharedApplication().endIgnoringInteractionEvents()
+            if UIApplication.shared.isIgnoringInteractionEvents {
+                UIApplication.shared.endIgnoringInteractionEvents()
             }
         } else {
-            if !UIApplication.sharedApplication().isIgnoringInteractionEvents() {
-                UIApplication.sharedApplication().beginIgnoringInteractionEvents()
+            if !UIApplication.shared.isIgnoringInteractionEvents {
+                UIApplication.shared.beginIgnoringInteractionEvents()
             }
         }
     }
     
-    func centralManager(central: CBCentralManager, didConnectPeripheral peripheral: CBPeripheral) {
+    func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         print("Now connected to peripheral: \(peripheral.name)")
         isDeviceConnected = true
         connectionStatusLabel.text = ""
         self.sensorDataValues = ""
-        connectButton.setTitle("Disconnect", forState: .Normal)
+        connectButton.setTitle("Disconnect", for: UIControlState())
         gPeripheral.discoverServices(nil)
     }
     
-    func centralManager(central: CBCentralManager, didFailToConnectPeripheral peripheral: CBPeripheral, error: NSError?) {
+    func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         print("Failed")
     }
     
-    func centralManager(central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: NSError?) {
+    func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         print("Disconnected ")
-        self.saveData()
         self.invalidateConnection()
     }
     // Peripheral methods
-    func peripheral(peripheral: CBPeripheral, didDiscoverServices error: NSError?) {
+    func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         //print("Discovered services: \(peripheral.services)")
         for service in peripheral.services! {
             print("Discovered service: \(service.description)")
             //if service.UUID == CBUUID(string: "180A") {
                 print("Discovering characteristics")
-                peripheral.discoverCharacteristics(nil, forService: service)
+                peripheral.discoverCharacteristics(nil, for: service)
             //}
         }
     }
     
-    func peripheral(peripheral: CBPeripheral, didDiscoverCharacteristicsForService service: CBService, error: NSError?) {
+    func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         print("Discovered characteristics: \(service.characteristics)")
         for characteristic in service.characteristics! {
             //print("Discovered characteristic: \(characteristic)")
-            peripheral.readValueForCharacteristic(characteristic)
-            peripheral.setNotifyValue(true, forCharacteristic: characteristic)
+            peripheral.readValue(for: characteristic)
+            peripheral.setNotifyValue(true, for: characteristic)
             
         }
     }
     
-    func peripheral(peripheral: CBPeripheral, didUpdateValueForCharacteristic characteristic: CBCharacteristic, error: NSError?) {
-        //var datastring = NSString(data: characteristic.value!, encoding: NSUTF8StringEncoding)
-        if let betaData = characteristic.value {
-            var betaDataVals = arrayFromData(betaData)
-            betaDataVals.insert(Timestamp, atIndex: 0)
-            if isRecording {
-                BSXData.text = "Connected and recording."
-                // Record data
-                sensorDataValues += "\(betaDataVals)"
-            } else {
-                BSXData.text = "Connected."
-            }
-        }
+    func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+        let datastring = NSString(data: characteristic.value!, encoding: String.Encoding.utf8.rawValue)
+        print("data received: \(datastring)")
     }
     
-    func peripheral(peripheral: CBPeripheral, didReadRSSI RSSI: NSNumber, error: NSError?) {
+    func peripheral(_ peripheral: CBPeripheral, didReadRSSI RSSI: NSNumber, error: Error?) {
         connectionStatusLabel.text = "RSSI: \(RSSI)"
         // print("Received Signal Strength Indicator: \(RSSI)")
         if isRecording {
@@ -401,15 +244,15 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
 extension NSMutableURLRequest {
     
     // generates all the requests to the server and converts stuff to JSON
-    func generateRequest(dict: NSDictionary, urlExtension: String) -> NSMutableURLRequest? {
+    func generateRequest(_ dict: NSDictionary, urlExtension: String) -> NSMutableURLRequest? {
         
         let accessToken: String = "ulJs1l1dRa1EHwrvuPJ1b8wV+LF2we0c3BXOxOmlyX6s9Fi2qQQSG3IetXJm8Vw5RCK5eNOaXhZ0nnCopcXILw=="
         
-        let urlString = API_SITE.stringByAppendingString(urlExtension)
-        let url = NSURL(string: urlString)
+        let urlString = API_SITE + urlExtension
+        let url = URL(string: urlString)
         
-        let request = NSMutableURLRequest(URL: url!, cachePolicy: NSURLRequestCachePolicy.UseProtocolCachePolicy, timeoutInterval: 600)
-        request.HTTPMethod = "POST"
+        let request = NSMutableURLRequest(url: url!, cachePolicy: NSURLRequest.CachePolicy.useProtocolCachePolicy, timeoutInterval: 600)
+        request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Token token=\(accessToken)", forHTTPHeaderField: "Authorization")
