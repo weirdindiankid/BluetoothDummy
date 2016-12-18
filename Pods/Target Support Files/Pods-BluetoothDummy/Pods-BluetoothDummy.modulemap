@@ -1,0 +1,6 @@
+framework module Pods_BluetoothDummy {
+  umbrella header "Pods-BluetoothDummy-umbrella.h"
+
+  export *
+  module * { export * }
+}
